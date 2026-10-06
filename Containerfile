@@ -1,46 +1,162 @@
-FROM debian:bookworm-slim AS tailwind
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
-    && ARCH=$(uname -m) \
-    && case "$ARCH" in x86_64) ARCH=x64 ;; aarch64) ARCH=arm64 ;; esac \
-    && curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${ARCH}" \
-    && chmod +x "tailwindcss-linux-${ARCH}" \
-    && mv "tailwindcss-linux-${ARCH}" /usr/local/bin/tailwindcss \
-    && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+```dockerignore
+# ============================================================
+# .dockerignore
+# Django + Python + uv + Tailwind + Docker
+# ============================================================
 
-FROM tailwind AS build-tailwind
-COPY static/css/input.css static/css/
-COPY core/templates/ core/templates/
-COPY books/templates/ books/templates/
-COPY waitlist/templates/ waitlist/templates/
-RUN tailwindcss -i static/css/input.css -o static/css/output.css --minify
+# ------------------------------------------------------------
+# Git
+# ------------------------------------------------------------
+.git
+.github
+.gitlab
+.gitignore
+.gitattributes
 
-FROM ghcr.io/astral-sh/uv:python3.12-alpine AS build
-WORKDIR /app
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 
-RUN apk add --no-cache postgresql-dev libffi-dev
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.tox/
+.nox/
 
-ENV UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_PYTHON=python3.12
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+coverage.xml
+pytest.xml
+junit.xml
 
-COPY pyproject.toml requirements.lock ./
-RUN uv venv && uv pip sync requirements.lock
+# ------------------------------------------------------------
+# Virtual environments
+# ------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
 
-COPY . /app
-COPY --from=build-tailwind /app/static/css/output.css /app/static/css/output.css
+.python-version
 
-RUN uv run manage.py collectstatic --noinput
+# ------------------------------------------------------------
+# uv / Python build artifacts
+# ------------------------------------------------------------
+.uv/
+*.egg-info/
+dist/
+build/
+wheels/
 
+# ------------------------------------------------------------
+# Django
+# ------------------------------------------------------------
+*.log
+logs/
 
-FROM ghcr.io/astral-sh/uv:python3.12-alpine
-ENV PYTHONUNBUFFERED=1
-WORKDIR /app
-COPY --from=build /app /app
+local_settings.py
 
-RUN apk add --no-cache bind-tools postgresql-dev libffi-dev xmlsec
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
 
-EXPOSE 8000
-ENTRYPOINT ["uv"]
-CMD ["run", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "core.wsgi:application"]
+media/
+uploads/
+
+# ------------------------------------------------------------
+# Environment / secrets
+# ------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# ------------------------------------------------------------
+# Node / JavaScript
+# ------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.npm/
+.parcel-cache/
+.next/
+.nuxt/
+
+# ------------------------------------------------------------
+# Frontend / cache
+# ------------------------------------------------------------
+.cache/
+.tmp/
+
+# ------------------------------------------------------------
+# Tailwind
+# ------------------------------------------------------------
+tailwindcss
+tailwindcss-*
+
+# ------------------------------------------------------------
+# IDE / editors
+# ------------------------------------------------------------
+.vscode/
+.idea/
+.vs/
+.settings/
+
+*.swp
+*.swo
+*~
+.#*
+
+# ------------------------------------------------------------
+# Operating system
+# ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ------------------------------------------------------------
+# Temporary / backup files
+# ------------------------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+
+# ------------------------------------------------------------
+# Docker local configuration
+# ------------------------------------------------------------
+.docker/
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.dev.yml
+Dockerfile.dev
+Dockerfile.test
+
+# ------------------------------------------------------------
+# Archives
+# ------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+```

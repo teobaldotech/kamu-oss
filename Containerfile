@@ -1,162 +1,232 @@
-```dockerignore
+```dockerfile
 # ============================================================
-# .dockerignore
-# Django + Python + uv + Tailwind + Docker
+# Dockerfile PRO
+# Django + Python + uv + Tailwind
+# ============================================================
+#
+# Objetivos:
+# - Criar uma imagem enxuta para produção.
+# - Utilizar uv para gerenciamento das dependências Python.
+# - Aproveitar o cache das camadas do Docker.
+# - Executar a aplicação com usuário não-root.
+# - Disponibilizar Healthcheck para monitoramento.
+#
 # ============================================================
 
-# ------------------------------------------------------------
-# Git
-# ------------------------------------------------------------
-.git
-.github
-.gitlab
-.gitignore
-.gitattributes
 
 # ------------------------------------------------------------
-# Python
+# 1. IMAGEM BASE
 # ------------------------------------------------------------
-__pycache__/
-**/__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.pytype/
-.tox/
-.nox/
-
-.coverage
-.coverage.*
-htmlcov/
-coverage/
-coverage.xml
-pytest.xml
-junit.xml
-
+# Utiliza uma imagem slim do Python para reduzir o tamanho
+# final da imagem e manter somente os componentes essenciais.
 # ------------------------------------------------------------
-# Virtual environments
-# ------------------------------------------------------------
-.venv/
-venv/
-env/
-ENV/
+FROM python:3.12-slim AS base
 
-.python-version
+
+# Evita a criação de arquivos .pyc.
+# Mantém os logs do Python disponíveis imediatamente no Docker.
+# Ativa informações adicionais em caso de falhas.
+# Configurações relacionadas ao uv.
+# Inclui o ambiente virtual da aplicação no PATH.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH"
+
+
+# Define o diretório principal da aplicação.
+WORKDIR /app
+
 
 # ------------------------------------------------------------
-# uv / Python build artifacts
+# 2. DEPENDÊNCIAS DO SISTEMA
 # ------------------------------------------------------------
-.uv/
-*.egg-info/
-dist/
-build/
-wheels/
+FROM base AS system
+
+
+# Instala somente pacotes necessários para execução.
+#
+# curl:
+#   utilizado por ferramentas auxiliares e verificações.
+#
+# ca-certificates:
+#   permite conexões HTTPS confiáveis.
+#
+# libpq5:
+#   biblioteca necessária para aplicações que utilizam
+#   PostgreSQL em runtime.
+#
+# --no-install-recommends:
+#   evita instalação de pacotes adicionais desnecessários.
+#
+# A limpeza do apt reduz o tamanho da imagem.
+# ------------------------------------------------------------
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
 
 # ------------------------------------------------------------
-# Django
+# 3. INSTALAÇÃO DO UV
 # ------------------------------------------------------------
-*.log
-logs/
+FROM system AS uv
 
-local_settings.py
 
-db.sqlite3
-db.sqlite3-journal
-*.sqlite3
-
-media/
-uploads/
-
+# Copia os executáveis oficiais do uv para a imagem.
+#
+# O uv será utilizado para instalar e sincronizar
+# as dependências Python definidas em pyproject.toml
+# e uv.lock.
 # ------------------------------------------------------------
-# Environment / secrets
-# ------------------------------------------------------------
-.env
-.env.*
-!.env.example
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-*.pem
-*.key
-*.crt
-*.p12
-*.pfx
 
 # ------------------------------------------------------------
-# Node / JavaScript
+# 4. INSTALAÇÃO DAS DEPENDÊNCIAS
 # ------------------------------------------------------------
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
+FROM uv AS dependencies
 
-.npm/
-.parcel-cache/
-.next/
-.nuxt/
 
+# Copia somente os arquivos responsáveis pelas dependências.
+#
+# Essa separação é importante:
+# alterações no código-fonte não invalidam automaticamente
+# a camada de instalação das dependências.
 # ------------------------------------------------------------
-# Frontend / cache
-# ------------------------------------------------------------
-.cache/
-.tmp/
+COPY pyproject.toml uv.lock ./
 
-# ------------------------------------------------------------
-# Tailwind
-# ------------------------------------------------------------
-tailwindcss
-tailwindcss-*
 
+# Instala as dependências exatamente conforme o lockfile.
+#
+# --frozen:
+#   impede alterações no uv.lock.
+#
+# --no-install-project:
+#   instala as dependências sem instalar o projeto
+#   propriamente dito nesta etapa.
+#
+# --no-dev:
+#   exclui dependências de desenvolvimento da imagem final.
 # ------------------------------------------------------------
-# IDE / editors
-# ------------------------------------------------------------
-.vscode/
-.idea/
-.vs/
-.settings/
+RUN uv sync \
+    --frozen \
+    --no-install-project \
+    --no-dev
 
-*.swp
-*.swo
-*~
-.#*
 
 # ------------------------------------------------------------
-# Operating system
+# 5. CÓDIGO DA APLICAÇÃO
 # ------------------------------------------------------------
-.DS_Store
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+FROM dependencies AS application
+
+
+# Copia o código restante da aplicação.
+#
+# O .dockerignore determina quais arquivos serão excluídos
+# do contexto antes desta operação.
+# ------------------------------------------------------------
+COPY . .
+
+
+# Sincroniza novamente o ambiente para garantir que o projeto
+# e suas dependências estejam corretamente disponíveis.
+# ------------------------------------------------------------
+RUN uv sync \
+    --frozen \
+    --no-dev
+
 
 # ------------------------------------------------------------
-# Temporary / backup files
+# 6. CONFIGURAÇÃO DA IMAGEM DE PRODUÇÃO
 # ------------------------------------------------------------
-*.tmp
-*.temp
-*.bak
-*.backup
-*.old
-*.orig
+FROM application AS production
+
+
+# Cria um grupo e usuário sem privilégios administrativos.
+#
+# Executar a aplicação como root aumenta o impacto de uma
+# eventual vulnerabilidade na aplicação.
+# ------------------------------------------------------------
+RUN addgroup --system django \
+    && adduser --system --ingroup django django
+
+
+# Cria os diretórios utilizados pela aplicação.
+#
+# staticfiles:
+#   destino comum do collectstatic.
+#
+# media:
+#   arquivos enviados pelos usuários.
+#
+# O chown garante que o usuário django tenha acesso.
+# ------------------------------------------------------------
+RUN mkdir -p \
+        /app/staticfiles \
+        /app/media \
+    && chown -R django:django /app
+
+
+# A partir deste ponto, a aplicação não será executada
+# como root.
+# ------------------------------------------------------------
+USER django
+
+
+# Porta utilizada pelo servidor Gunicorn.
+EXPOSE 8000
+
 
 # ------------------------------------------------------------
-# Docker local configuration
+# 7. HEALTHCHECK
 # ------------------------------------------------------------
-.docker/
-docker-compose.override.yml
-docker-compose.local.yml
-docker-compose.dev.yml
-Dockerfile.dev
-Dockerfile.test
+# Verifica periodicamente se a aplicação está respondendo.
+#
+# O endpoint /health/ deve existir na aplicação Django.
+#
+# Caso o endpoint não exista, crie uma rota simples para
+# retornar HTTP 200 quando a aplicação estiver saudável.
+# ------------------------------------------------------------
+HEALTHCHECK \
+    --interval=30s \
+    --timeout=5s \
+    --start-period=20s \
+    --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=3)" \
+    || exit 1
+
 
 # ------------------------------------------------------------
-# Archives
+# 8. INICIALIZAÇÃO
 # ------------------------------------------------------------
-*.zip
-*.tar
-*.tar.gz
-*.rar
-*.7z
+# Inicia o Gunicorn.
+#
+# --bind:
+#   disponibiliza o servidor em todas as interfaces.
+#
+# --workers:
+#   executa múltiplos workers para atender requisições.
+#
+# access/error-log:
+#   envia os logs para stdout/stderr, permitindo que o Docker
+#   e ferramentas de observabilidade capturem os registros.
+#
+# IMPORTANTE:
+# substitua config.wsgi:application pelo módulo WSGI real
+# do seu projeto Django.
+# ------------------------------------------------------------
+CMD [
+    "gunicorn",
+    "--bind", "0.0.0.0:8000",
+    "--workers", "3",
+    "--access-logfile", "-",
+    "--error-logfile", "-",
+    "config.wsgi:application"
+]
 ```

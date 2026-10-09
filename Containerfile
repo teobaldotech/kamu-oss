@@ -1,34 +1,27 @@
 ```dockerfile
 # ============================================================
-# Containerfile PRO ULTRA
-# Django + Python 3.12 + uv + Gunicorn
+# Containerfile PRO ULTRA — Django + FIRST
+# Python 3.12 + uv + Gunicorn
+# Docker / Podman
 # ============================================================
 #
-# Objetivos:
-# - Build reproduzível
-# - Python 3.12
-# - uv com versão fixa
-# - Dependências controladas por uv.lock
-# - Cache eficiente das dependências
-# - Imagem final enxuta
-# - Execução como usuário não-root
-# - Healthcheck
-# - Logs direcionados para stdout/stderr
-# - Compatibilidade com Docker/Podman
+# PRINCÍPIOS FIRST:
+# F - Fast: cache de dependências e verificações rápidas.
+# I - Independent: testes isolados do ambiente de produção.
+# R - Repeatable: uv.lock e dependências fixadas.
+# S - Self-validating: build falha se os testes falharem.
+# T - Timely: validação integrada ao fluxo de desenvolvimento.
 #
-# IMPORTANTE:
-# - O projeto deve possuir pyproject.toml e uv.lock.
-# - Gunicorn deve estar nas dependências de produção.
-# - O endpoint /health/ deve existir no Django.
-# - Ajuste config.wsgi:application para o módulo WSGI real.
+# Requisitos:
+# - pyproject.toml e uv.lock
+# - manage.py na raiz
+# - Gunicorn nas dependências de produção
+# - Endpoint /health/ retornando HTTP 200
+# - Módulo WSGI ajustado para o projeto
 #
 # ============================================================
 
-
-# ============================================================
-# 1. BASE
-# ============================================================
-
+# 1. IMAGEM BASE
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -51,7 +44,6 @@ FROM base AS system
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        curl \
         libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -59,22 +51,15 @@ RUN apt-get update \
 # ============================================================
 # 3. INSTALAÇÃO DO UV
 # ============================================================
-#
-# A versão é fixada para evitar mudanças inesperadas
-# durante futuros builds.
-# ============================================================
 
 FROM system AS uv
 
-COPY --from=ghcr.io/astral-sh/uv:0.8.22 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.8.22 \
+    /uv /uvx /usr/local/bin/
 
 
 # ============================================================
-# 4. DEPENDÊNCIAS PYTHON
-# ============================================================
-#
-# Copiar somente pyproject.toml e uv.lock antes do código
-# permite aproveitar o cache do Docker/Podman.
+# 4. DEPENDÊNCIAS DE PRODUÇÃO
 # ============================================================
 
 FROM uv AS dependencies
@@ -95,69 +80,81 @@ FROM dependencies AS application
 
 COPY . .
 
+# Instala o projeto sem modificar o lockfile.
 RUN uv sync \
     --frozen \
-    --no-dev
+    --no-dev \
+    && python -m compileall -q .
 
 
 # ============================================================
-# 6. PRODUÇÃO
+# 6. ESTÁGIO DE TESTES — FIRST
+# ============================================================
+#
+# Este estágio instala também as dependências de
+# desenvolvimento e executa as verificações automatizadas.
+#
+# Se os testes falharem, o marcador não será criado.
+# A imagem de produção depende desse marcador.
+# ============================================================
+
+FROM uv AS test
+
+COPY pyproject.toml uv.lock ./
+
+RUN uv sync --frozen
+
+COPY . .
+
+# Verifica a configuração e executa os testes.
+# Qualquer erro interrompe o build.
+RUN python manage.py check \
+    && python manage.py test \
+    && touch /tmp/test-success
+
+
+# ============================================================
+# 7. IMAGEM DE PRODUÇÃO
+# ============================================================
+#
+# O COPY do marcador obriga o build a concluir o estágio
+# de testes antes de finalizar a imagem de produção.
+#
+# A imagem final herda application, não test. Assim,
+# as dependências exclusivas de desenvolvimento não
+# são copiadas do ambiente de testes.
 # ============================================================
 
 FROM application AS production
 
+# Dependência explícita do estágio de testes.
+COPY --from=test /tmp/test-success /tmp/test-success
 
-# ============================================================
-# 6.1 USUÁRIO NÃO-ROOT
-# ============================================================
-#
-# A aplicação não deve ser executada como root.
-# ============================================================
-
+# Criação de usuário e grupo sem privilégios administrativos.
 RUN addgroup --system django \
-    && adduser --system --ingroup django django
+    && adduser --system --ingroup django django \
+    && mkdir -p /app/staticfiles /app/media \
+    && chown -R django:django /app \
+    && rm -f /tmp/test-success
 
 
 # ============================================================
-# 6.2 DIRETÓRIOS DO DJANGO
-# ============================================================
-#
-# staticfiles:
-#   arquivos gerados pelo collectstatic.
-#
-# media:
-#   arquivos enviados pelos usuários.
+# 8. CONFIGURAÇÃO DE RUNTIME
 # ============================================================
 
-RUN mkdir -p \
-        /app/staticfiles \
-        /app/media \
-    && chown -R django:django /app
-
-
-# ============================================================
-# 6.3 USUÁRIO DA APLICAÇÃO
-# ============================================================
-
-USER django
-
-
-# ============================================================
-# 7. PORTA
-# ============================================================
+ENV PORT=8000 \
+    WEB_CONCURRENCY=3
 
 EXPOSE 8000
 
 
 # ============================================================
-# 8. HEALTHCHECK
+# 9. HEALTHCHECK
 # ============================================================
 #
-# O Django deve possuir uma rota:
-#
-#     GET /health/
-#
-# retornando HTTP 200 quando a aplicação estiver saudável.
+# A rota /health/ deve retornar HTTP 200.
+# Uma resposta HTTP de erro ou uma falha de conexão
+# faz o healthcheck falhar.
 # ============================================================
 
 HEALTHCHECK \
@@ -165,26 +162,24 @@ HEALTHCHECK \
     --timeout=5s \
     --start-period=20s \
     --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=3)" \
-    || exit 1
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=3)"]
 
 
 # ============================================================
-# 9. INICIALIZAÇÃO
-# ============================================================
-#
-# Gunicorn deve estar instalado nas dependências de produção.
-#
-# Exemplo no pyproject.toml:
-#
-#     gunicorn>=23
-#
-# Substitua:
-#
-#     config.wsgi:application
-#
-# pelo módulo WSGI real do projeto.
+# 10. USUÁRIO NÃO-ROOT
 # ============================================================
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--access-logfile", "-", "--error-logfile", "-", "config.wsgi:application"]
+USER django
+
+
+# ============================================================
+# 11. INICIALIZAÇÃO DO GUNICORN
+# ============================================================
+#
+# Ajuste config.wsgi:application para o módulo WSGI real.
+# Os logs de acesso e erros são enviados ao container.
+# exec permite que o Gunicorn receba sinais do runtime.
+# ============================================================
+
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT} --workers ${WEB_CONCURRENCY} --access-logfile - --error-logfile - config.wsgi:application"]
 ```

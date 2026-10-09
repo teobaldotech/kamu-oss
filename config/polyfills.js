@@ -1,22 +1,118 @@
-'use strict';
+import airbnb from "eslint-config-airbnb-base-x/flat";
+import globals from "globals";
 
-if (typeof Promise === 'undefined') {
-  // Rejection tracking prevents a common issue where React gets into an
-  // inconsistent state due to an error, but it gets swallowed by a Promise,
-  // and the user has no idea what causes React's erratic future behavior.
-  require('promise/lib/rejection-tracking').enable();
-  window.Promise = require('promise/lib/es6-extensions.js');
-}
+/**
 
-// fetch() polyfill for making API calls.
-require('whatwg-fetch');
+* ============================================================
+* ESLint PRO — Flat Config
+* ============================================================
+*
+* Funcionalidades:
+* * Configurações recomendadas do Airbnb.
+* * Suporte a JavaScript moderno.
+* * Separação entre ESM e CommonJS.
+* * Ambientes Browser e Node.js.
+* * Indentação com tabulações.
+* * Detecção de variáveis não utilizadas.
+* * Identificação de diretivas eslint-disable desnecessárias.
+*
+* Requisitos:
+* * ESLint compatível com Flat Config.
+* * eslint-config-airbnb-base-x com os exports utilizados.
+* * globals.
+    */
 
-// Object.assign() is commonly used with React.
-// It will use the native implementation if it's present and isn't buggy.
-Object.assign = require('object-assign');
+const sharedRules = {
+// Padroniza a indentação com tabulações.
+indent: ["error", "tab"],
+"no-tabs": "off",
 
-// In tests, polyfill requestAnimationFrame since jsdom doesn't provide it yet.
-// We don't polyfill it in the browser--this is user's responsibility.
-if (process.env.NODE_ENV === 'test') {
-  require('raf').polyfill(global);
-}
+```
+// Detecta variáveis e parâmetros não utilizados.
+"no-unused-vars": [
+	"error",
+	{
+		vars: "all",
+		args: "all",
+		argsIgnorePattern: "^_",
+		caughtErrors: "all",
+		caughtErrorsIgnorePattern: "^_",
+		varsIgnorePattern: "^_",
+	},
+],
+```
+
+};
+
+// Configurações compartilhadas dos ambientes.
+const browserGlobals = {
+...globals.browser,
+document: "readonly",
+};
+
+const nodeGlobals = {
+...globals.node,
+};
+
+const commonLanguageOptions = {
+ecmaVersion: 2021,
+};
+
+// Configuração para arquivos JavaScript com módulos ES.
+const esmConfig = {
+files: ["**/*.js", "**/*.mjs"],
+
+```
+languageOptions: {
+	...commonLanguageOptions,
+	sourceType: "module",
+
+	globals: {
+		...browserGlobals,
+		...nodeGlobals,
+	},
+},
+
+rules: sharedRules,
+```
+
+};
+
+// Configuração para arquivos CommonJS.
+const commonJsConfig = {
+files: ["**/*.cjs"],
+
+```
+languageOptions: {
+	...commonLanguageOptions,
+	sourceType: "commonjs",
+
+	globals: nodeGlobals,
+},
+
+rules: sharedRules,
+```
+
+};
+
+// Configuração para verificar diretivas de desativação de regras.
+const linterOptionsConfig = {
+linterOptions: {
+reportUnusedDisableDirectives: "error",
+},
+};
+
+// Exporta a configuração completa.
+export default [
+// Regras recomendadas do Airbnb.
+...airbnb.recommended,
+...airbnb.recommendedNode,
+
+```
+// Regras específicas do projeto.
+esmConfig,
+commonJsConfig,
+linterOptionsConfig,
+```
+
+];

@@ -1,118 +1,106 @@
+
 import airbnb from "eslint-config-airbnb-base-x/flat";
 import globals from "globals";
 
 /**
+ * ESLint PRO — Flat Config
+ *
+ * Princípios aplicados:
+ * - Configuração organizada e previsível.
+ * - Separação entre ESM e CommonJS.
+ * - Ambientes específicos por tipo de arquivo.
+ * - Regras compartilhadas centralizadas.
+ * - Identificação de variáveis não utilizadas.
+ * - Detecção de diretivas eslint-disable desnecessárias.
+ */
 
-* ============================================================
-* ESLint PRO — Flat Config
-* ============================================================
-*
-* Funcionalidades:
-* * Configurações recomendadas do Airbnb.
-* * Suporte a JavaScript moderno.
-* * Separação entre ESM e CommonJS.
-* * Ambientes Browser e Node.js.
-* * Indentação com tabulações.
-* * Detecção de variáveis não utilizadas.
-* * Identificação de diretivas eslint-disable desnecessárias.
-*
-* Requisitos:
-* * ESLint compatível com Flat Config.
-* * eslint-config-airbnb-base-x com os exports utilizados.
-* * globals.
-    */
+// ------------------------------------------------------------
+// 1. Regras compartilhadas
+// ------------------------------------------------------------
 
 const sharedRules = {
-// Padroniza a indentação com tabulações.
-indent: ["error", "tab"],
-"no-tabs": "off",
+	indent: ["error", "tab"],
+	"no-tabs": "off",
 
-```
-// Detecta variáveis e parâmetros não utilizados.
-"no-unused-vars": [
-	"error",
-	{
-		vars: "all",
-		args: "all",
-		argsIgnorePattern: "^_",
-		caughtErrors: "all",
-		caughtErrorsIgnorePattern: "^_",
-		varsIgnorePattern: "^_",
-	},
-],
-```
-
+	"no-unused-vars": [
+		"error",
+		{
+			vars: "all",
+			args: "all",
+			argsIgnorePattern: "^_",
+			caughtErrors: "all",
+			caughtErrorsIgnorePattern: "^_",
+			varsIgnorePattern: "^_",
+		},
+	],
 };
 
-// Configurações compartilhadas dos ambientes.
-const browserGlobals = {
-...globals.browser,
-document: "readonly",
-};
-
-const nodeGlobals = {
-...globals.node,
-};
+// ------------------------------------------------------------
+// 2. Opções de linguagem
+// ------------------------------------------------------------
 
 const commonLanguageOptions = {
-ecmaVersion: 2021,
+	ecmaVersion: 2021,
 };
 
-// Configuração para arquivos JavaScript com módulos ES.
+// ------------------------------------------------------------
+// 3. Configuração ESM — arquivos .js e .mjs
+// ------------------------------------------------------------
+
 const esmConfig = {
-files: ["**/*.js", "**/*.mjs"],
+	files: ["**/*.js", "**/*.mjs"],
 
-```
-languageOptions: {
-	...commonLanguageOptions,
-	sourceType: "module",
+	languageOptions: {
+		...commonLanguageOptions,
+		sourceType: "module",
 
-	globals: {
-		...browserGlobals,
-		...nodeGlobals,
+		globals: {
+			...globals.browser,
+			...globals.node,
+		},
 	},
-},
 
-rules: sharedRules,
-```
-
+	rules: sharedRules,
 };
 
-// Configuração para arquivos CommonJS.
+// ------------------------------------------------------------
+// 4. Configuração CommonJS — arquivos .cjs
+// ------------------------------------------------------------
+
 const commonJsConfig = {
-files: ["**/*.cjs"],
+	files: ["**/*.cjs"],
 
-```
-languageOptions: {
-	...commonLanguageOptions,
-	sourceType: "commonjs",
+	languageOptions: {
+		...commonLanguageOptions,
+		sourceType: "commonjs",
 
-	globals: nodeGlobals,
-},
+		globals: {
+			...globals.node,
+		},
+	},
 
-rules: sharedRules,
-```
-
+	rules: sharedRules,
 };
 
-// Configuração para verificar diretivas de desativação de regras.
+// ------------------------------------------------------------
+// 5. Opções do próprio ESLint
+// ------------------------------------------------------------
+
 const linterOptionsConfig = {
-linterOptions: {
-reportUnusedDisableDirectives: "error",
-},
+	linterOptions: {
+		reportUnusedDisableDirectives: "error",
+	},
 };
 
-// Exporta a configuração completa.
+// ------------------------------------------------------------
+// 6. Exportação da configuração
+// ------------------------------------------------------------
+
 export default [
-// Regras recomendadas do Airbnb.
-...airbnb.recommended,
-...airbnb.recommendedNode,
+	...airbnb.recommended,
+	...airbnb.recommendedNode,
 
-```
-// Regras específicas do projeto.
-esmConfig,
-commonJsConfig,
-linterOptionsConfig,
-```
-
+	esmConfig,
+	commonJsConfig,
+	linterOptionsConfig,
 ];
